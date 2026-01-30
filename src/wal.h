@@ -1,17 +1,14 @@
 #pragma once
-
 #include <string>
 #include <fstream>
+#include "store.h"
 
 class WriteAheadLog {
 public:
     explicit WriteAheadLog(const std::string& filename);
-
-    void append(const std::string& entry);
-
-    void replay(class KVStore& store);
+    void appendPut(const std::string& key, const std::string& value);
+    void replay(KVStore& store);
 
 private:
     std::string filename_;
-    std::ofstream log_file_;
 };

@@ -1,15 +1,14 @@
 #include "wal.h"
-#include "kv_store.h"
-
-#include <fstream>
 #include <sstream>
 
 WriteAheadLog::WriteAheadLog(const std::string& filename)
-    : filename_(filename), log_file_(filename, std::ios::app) {}
+    : filename_(filename) {}
 
-void WriteAheadLog::append(const std::string& entry) {
-    log_file_ << entry << "\n";
-    log_file_.flush();  // ensures data is written
+void WriteAheadLog::appendPut(const std::string& key, const std::string& value) {
+    std::ofstream out(filename_, std::ios::app);
+    out << "PUT " << key << " " << value << "\n";
+    out.flush();
+    // fsync(fileno(out.rdbuf()->fd()));
 }
 
 void WriteAheadLog::replay(KVStore& store) {
@@ -18,15 +17,10 @@ void WriteAheadLog::replay(KVStore& store) {
 
     while (std::getline(in, line)) {
         std::istringstream iss(line);
-        std::string command;
-        iss >> command;
-
-        if (command == "PUT") {
-            std::string key, value;
-            iss >> key >> value;
-            if (!key.empty() && !value.empty()) {
-                store.put(key, value);
-            }
+        std::string cmd, key, value;
+        iss >> cmd >> key >> value;
+        if (cmd == "PUT") {
+            store.put(key, value);
         }
     }
 }
