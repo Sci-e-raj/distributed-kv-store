@@ -5,7 +5,11 @@
 
 Replicator::Replicator(const std::vector<std::string>& followers)
     : followers_(followers) {}
-    
+
+const std::vector<std::string>& Replicator::followers() const {
+    return followers_;
+}
+
 void Replicator::sendHeartbeats() {
     for (const auto& addr : followers_) {
         std::string ip = addr.substr(0, addr.find(':'));

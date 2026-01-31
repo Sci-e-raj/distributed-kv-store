@@ -13,15 +13,23 @@ enum class Role {
 
 class Server {
 public:
-    Server(int port, Role role);
+    Server(int port, Role role, int server_id,
+       const std::vector<std::string>& peers);
+
     void start();
     std::unique_ptr<Replicator> replicator_;
-   
+    void startElection();
+    std::vector<std::string> peers_;
+
 private:
     std::atomic<bool> leader_alive_{true};
     std::chrono::steady_clock::time_point last_heartbeat_;
     void startHeartbeatSender();
     void startHeartbeatMonitor();
+
+    int current_term_ = 0;
+    int voted_for_ = -1;
+    int server_id_;   // unique per node
 
     int port_;
     Role role_;

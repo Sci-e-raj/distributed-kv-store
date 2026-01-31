@@ -5,6 +5,51 @@
 #include <thread>
 #include <iostream>
 
+void Server::startElection() {
+    current_term_++;
+    voted_for_ = server_id_;
+
+    int votes = 1; // vote for self
+
+    for (const auto& addr : peers_){
+        std::string ip = addr.substr(0, addr.find(':'));
+        int port = std::stoi(addr.substr(addr.find(':') + 1));
+
+        int sock = socket(AF_INET, SOCK_STREAM, 0);
+        if (sock < 0) continue;
+
+        sockaddr_in serv{};
+        serv.sin_family = AF_INET;
+        serv.sin_port = htons(port);
+        inet_pton(AF_INET, ip.c_str(), &serv.sin_addr);
+
+        if (connect(sock, (sockaddr*)&serv, sizeof(serv)) < 0) {
+            close(sock);
+            continue;
+        }
+
+        std::ostringstream oss;
+        oss << "REQUEST_VOTE " << current_term_ << " " << server_id_ << "\n";
+        std::string msg = oss.str();
+
+        write(sock, msg.c_str(), msg.size());
+
+        char buffer[128];
+        int n = read(sock, buffer, sizeof(buffer));
+        if (n > 0 && std::string(buffer, n).find("VOTE_GRANTED") != std::string::npos) {
+            votes++;
+        }
+
+        close(sock);
+    }
+
+    if (votes > 1) {
+        role_ = Role::LEADER;
+        std::cout << "[INFO] Became LEADER for term " << current_term_ << "\n";
+        startHeartbeatSender();
+    }
+}
+
 void Server::startHeartbeatMonitor() {
     last_heartbeat_ = std::chrono::steady_clock::now();
 
@@ -15,9 +60,14 @@ void Server::startHeartbeatMonitor() {
                 now - last_heartbeat_
             ).count();
 
-            if (diff > 3) {
+            // if (diff > 3) {
+            //     leader_alive_ = false;
+            //     std::cout << "[WARN] Leader considered dead\n";
+            // }
+            if (diff > 3 && role_ == Role::FOLLOWER) {
                 leader_alive_ = false;
-                std::cout << "[WARN] Leader considered dead\n";
+                std::cout << "[WARN] Leader dead. Starting election...\n";
+                startElection();
             }
 
             std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -36,20 +86,21 @@ void Server::startHeartbeatSender() {
     }).detach();
 }
 
-Server::Server(int port, Role role)
-    : port_(port), role_(role), wal_("wal.log") {
+Server::Server(int port, Role role, int server_id,
+               const std::vector<std::string>& peers)
+    : port_(port),
+      role_(role),
+      server_id_(server_id),
+      peers_(peers),
+      wal_("wal_" + std::to_string(port) + ".log") {
 
     wal_.replay(store_);
 
     if (role_ == Role::LEADER) {
-        replicator_ = std::make_unique<Replicator>(
-            std::vector<std::string>{
-                "127.0.0.1:8081",
-                "127.0.0.1:8082"
-            }
-        );
+        replicator_ = std::make_unique<Replicator>(peers_);
     }
 }
+
 
 
 void Server::start() {
@@ -91,6 +142,26 @@ void Server::handleClient(int client_fd) {
 
     std::string cmd;
     iss >> cmd;
+
+    if (cmd == "REQUEST_VOTE") {
+        int term, candidate_id;
+        iss >> term >> candidate_id;
+
+        if (term > current_term_) {
+            current_term_ = term;
+            voted_for_ = -1;
+        }
+
+        if (voted_for_ == -1 && term == current_term_) {
+            voted_for_ = candidate_id;
+            write(client_fd, "VOTE_GRANTED\n", 13);
+        } else {
+            write(client_fd, "VOTE_DENIED\n", 12);
+        }
+
+        close(client_fd);
+        return;
+    }
 
     if (cmd == "HEARTBEAT") {
         last_heartbeat_ = std::chrono::steady_clock::now();
