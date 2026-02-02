@@ -9,4 +9,6 @@ add_executable(logkv
     src/wal.cpp
     src/store.cpp
     src/replication.cpp
+    src/event.h
+    src/event_queue.h
 )
